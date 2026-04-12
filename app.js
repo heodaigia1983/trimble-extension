@@ -1,5 +1,6 @@
 let API = null;
 let excelRows = [];
+let workbookData = null;
 
 const APPROVED_COLOR = "#4CAF50";
 
@@ -55,16 +56,14 @@ async function initAPI() {
   return API;
 }
 
-function readExcel(file) {
+function readWorkbook(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onload = (e) => {
       try {
         const workbook = XLSX.read(e.target.result, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-        resolve(rows);
+        resolve(workbook);
       } catch (err) {
         reject(err);
       }
@@ -73,6 +72,70 @@ function readExcel(file) {
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
+}
+
+function populateSheetSelect(workbook) {
+  const select = document.getElementById("sheetSelect");
+  select.innerHTML = "";
+
+  if (!workbook || !Array.isArray(workbook.SheetNames) || workbook.SheetNames.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "-- Không có sheet --";
+    select.appendChild(opt);
+    return;
+  }
+
+  workbook.SheetNames.forEach((sheetName, index) => {
+    const opt = document.createElement("option");
+    opt.value = sheetName;
+    opt.textContent = sheetName;
+    if (index === 0) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+function getSelectedSheetName() {
+  const select = document.getElementById("sheetSelect");
+  return select ? String(select.value || "").trim() : "";
+}
+
+function buildSuggestedViewName(sheetName) {
+  const now = new Date();
+  const dateText =
+    now.getFullYear() +
+    "-" +
+    String(now.getMonth() + 1).padStart(2, "0") +
+    "-" +
+    String(now.getDate()).padStart(2, "0") +
+    " " +
+    String(now.getHours()).padStart(2, "0") +
+    ":" +
+    String(now.getMinutes()).padStart(2, "0");
+
+  return `${sheetName || "Approval"} - ${dateText}`;
+}
+
+function fillSuggestedViewName(force = false) {
+  const input = document.getElementById("viewNameInput");
+  const sheetName = getSelectedSheetName();
+
+  if (!input) return;
+
+  if (force || !input.value.trim() || input.dataset.userEdited !== "1") {
+    input.value = buildSuggestedViewName(sheetName);
+    input.dataset.userEdited = "0";
+  }
+}
+
+function sheetToRows(workbook, sheetName) {
+  if (!workbook) throw new Error("Workbook chưa được nạp.");
+  if (!sheetName) throw new Error("Chưa chọn sheet.");
+
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) throw new Error(`Không tìm thấy sheet: ${sheetName}`);
+
+  return XLSX.utils.sheet_to_json(sheet, { defval: "" });
 }
 
 function normalizeExcelGuids(rows) {
@@ -258,7 +321,6 @@ function extractWeightFromObjectProperties(objectProps) {
 
 async function sumWeightForIds(api, modelId, runtimeIds, label) {
   let total = 0;
-  let hitCount = 0;
 
   const batches = chunkArray(runtimeIds, 300);
 
@@ -276,16 +338,13 @@ async function sumWeightForIds(api, modelId, runtimeIds, label) {
 
     for (const obj of objectProps || []) {
       const w = extractWeightFromObjectProperties(obj);
-      if (w !== null) {
-        total += w;
-        hitCount++;
-      }
+      if (w !== null) total += w;
     }
 
     log(`${label} weight batch ${i + 1}/${batches.length} done.`);
   }
 
-  return { total, hitCount };
+  return total;
 }
 
 async function calculateWeights(api, modelGroups, approvedSetsByModel) {
@@ -296,12 +355,10 @@ async function calculateWeights(api, modelGroups, approvedSetsByModel) {
     const allIds = group.runtimeIds;
     const greenIds = Array.from(approvedSetsByModel.get(group.modelId) || new Set());
 
-    const totalRes = await sumWeightForIds(api, group.modelId, allIds, `Total model ${group.modelId}`);
-    totalModelWeight += totalRes.total;
+    totalModelWeight += await sumWeightForIds(api, group.modelId, allIds, `Total model ${group.modelId}`);
 
     if (greenIds.length) {
-      const greenRes = await sumWeightForIds(api, group.modelId, greenIds, `Green model ${group.modelId}`);
-      greenWeight += greenRes.total;
+      greenWeight += await sumWeightForIds(api, group.modelId, greenIds, `Green model ${group.modelId}`);
     }
   }
 
@@ -383,6 +440,59 @@ async function resetViewer() {
   log("Viewer reset completed.");
 }
 
+async function saveCurrentView() {
+  const api = await initAPI();
+
+  let viewName = String(document.getElementById("viewNameInput")?.value || "").trim();
+  if (!viewName) {
+    viewName = buildSuggestedViewName(getSelectedSheetName());
+    const input = document.getElementById("viewNameInput");
+    if (input) input.value = viewName;
+  }
+
+  const sheetName = getSelectedSheetName() || "-";
+  const description = `Saved from Model Approval Colorizer | Sheet: ${sheetName} | Developed by Le Van Thao`;
+
+  const createdView = await api.view.createView({
+    name: viewName,
+    description: description
+  });
+
+  if (!createdView?.id) {
+    throw new Error("Create view succeeded but no view ID was returned.");
+  }
+
+  await api.view.updateView({ id: createdView.id });
+  await api.view.selectView(createdView.id);
+
+  log(`View saved and opened: ${createdView.name || viewName}`);
+}
+
+document.getElementById("fileInput").addEventListener("change", async (event) => {
+  try {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    workbookData = await readWorkbook(file);
+    populateSheetSelect(workbookData);
+    fillSuggestedViewName(true);
+
+    log("Workbook loaded.");
+    log("Available sheets: " + (workbookData.SheetNames || []).join(", "));
+  } catch (err) {
+    console.error(err);
+    log("Workbook load error: " + (err?.message || JSON.stringify(err) || String(err)));
+  }
+});
+
+document.getElementById("sheetSelect").addEventListener("change", () => {
+  fillSuggestedViewName(false);
+});
+
+document.getElementById("viewNameInput").addEventListener("input", (e) => {
+  e.target.dataset.userEdited = e.target.value.trim() ? "1" : "0";
+});
+
 document.getElementById("readBtn").addEventListener("click", async () => {
   try {
     const file = document.getElementById("fileInput").files[0];
@@ -392,13 +502,27 @@ document.getElementById("readBtn").addEventListener("click", async () => {
       return;
     }
 
+    if (!workbookData) {
+      workbookData = await readWorkbook(file);
+      populateSheetSelect(workbookData);
+      fillSuggestedViewName(true);
+    }
+
+    const sheetName = getSelectedSheetName();
+    if (!sheetName) {
+      log("Please choose a sheet.");
+      return;
+    }
+
     clearLog();
     updateStats();
     await initAPI();
 
-    excelRows = await readExcel(file);
+    excelRows = sheetToRows(workbookData, sheetName);
 
+    log(`Workbook sheet selected: ${sheetName}`);
     log(`Excel rows loaded: ${excelRows.length}`);
+
     await applyColorWorkflow();
   } catch (err) {
     console.error(err);
@@ -412,6 +536,15 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
   } catch (err) {
     console.error(err);
     log("Reset error: " + (err?.message || JSON.stringify(err) || String(err)));
+  }
+});
+
+document.getElementById("saveViewBtn").addEventListener("click", async () => {
+  try {
+    await saveCurrentView();
+  } catch (err) {
+    console.error(err);
+    log("Save View error: " + (err?.message || JSON.stringify(err) || String(err)));
   }
 });
 
