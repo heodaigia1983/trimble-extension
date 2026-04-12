@@ -46,11 +46,6 @@ function updateStats({
     `Khối lượng đang triển khai: <strong>${greenWeight}</strong>`;
 }
 
-function setSheetInfo(text) {
-  const el = document.getElementById("sheetInfo");
-  if (el) el.value = text || "";
-}
-
 async function initAPI() {
   if (API) return API;
 
@@ -465,7 +460,6 @@ document.getElementById("fileInput").addEventListener("change", async (event) =>
       throw new Error("File Excel không có sheet.");
     }
 
-    setSheetInfo(firstSheetName);
     fillSuggestedViewName(true);
 
     log("Workbook loaded.");
@@ -492,7 +486,6 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     if (!workbookData) {
       workbookData = await readWorkbook(file);
       firstSheetName = getFirstSheetName(workbookData);
-      setSheetInfo(firstSheetName);
       fillSuggestedViewName(true);
     }
 
@@ -536,4 +529,3 @@ document.getElementById("saveViewBtn").addEventListener("click", async () => {
 });
 
 updateStats();
-setSheetInfo("Chưa nạp file Excel");
