@@ -1,8 +1,21 @@
 let API = null;
 let excelRows = [];
 
-const APPROVED_COLOR = "#4CAF50"; // xanh
-const OTHER_COLOR = "#BDBDBD";    // xám
+const APPROVED_COLOR = "#4CAF50";
+
+const WEIGHT_KEYS = [
+  "WEIGHT",
+  "Weight",
+  "weight",
+  "MASS",
+  "Mass",
+  "mass",
+  "PROFILE_WEIGHT",
+  "ASSEMBLY_WEIGHT",
+  "TOTAL_WEIGHT",
+  "PART_WEIGHT",
+  "MODEL_WEIGHT"
+];
 
 function log(msg) {
   const el = document.getElementById("log");
@@ -17,25 +30,18 @@ function clearLog() {
 
 function updateStats({
   totalObjects = "-",
-  excelGuidCount = "-",
-  greenCount = "-",
-  grayCount = "-",
-  unmatchedCount = "-"
+  totalWeight = "-",
+  greenObjectCount = "-",
+  greenWeight = "-"
 } = {}) {
   const el = document.getElementById("stats");
   if (!el) return;
 
   el.innerHTML =
-    `Tổng object: ${totalObjects}<br />` +
-    `GUID trong Excel: ${excelGuidCount}<br />` +
-    `Xanh: ${greenCount}<br />` +
-    `Xám: ${grayCount}<br />` +
-    `Không match: ${unmatchedCount}`;
-}
-
-function shouldGrayOthers() {
-  const checkbox = document.getElementById("grayOthersCheckbox");
-  return checkbox ? checkbox.checked : true;
+    `Tổng số cấu kiện model: <strong>${totalObjects}</strong><br />` +
+    `Tổng khối lượng model: <strong>${totalWeight}</strong><br />` +
+    `Số cấu kiện màu xanh: <strong>${greenObjectCount}</strong><br />` +
+    `Khối lượng màu xanh: <strong>${greenWeight}</strong>`;
 }
 
 async function initAPI() {
@@ -45,7 +51,7 @@ async function initAPI() {
     console.log("Trimble event:", event, data);
   });
 
-  log("Đã kết nối Trimble API.");
+  log("Connected to Trimble Workspace API.");
   return API;
 }
 
@@ -74,7 +80,7 @@ function normalizeExcelGuids(rows) {
 
   return rows
     .map(r => String(r.GUID || "").trim())
-    .filter(guid => guid)
+    .filter(Boolean)
     .filter(guid => {
       if (seen.has(guid)) return false;
       seen.add(guid);
@@ -109,7 +115,7 @@ async function getLoadedModelGroups() {
   const raw = await api.viewer.getObjects();
 
   if (!Array.isArray(raw) || !raw.length) {
-    throw new Error("Viewer chưa trả về object nào.");
+    throw new Error("Viewer returned no objects.");
   }
 
   const groups = raw
@@ -121,10 +127,10 @@ async function getLoadedModelGroups() {
     .filter(group => group.modelId && group.runtimeIds.length > 0);
 
   if (!groups.length) {
-    throw new Error("Không đọc được runtime ids từ viewer.getObjects().");
+    throw new Error("Could not read runtime IDs from viewer.getObjects().");
   }
 
-  log("Loaded modelIds trong viewer: " + groups.map(g => g.modelId).join(", "));
+  log("Loaded model IDs: " + groups.map(g => g.modelId).join(", "));
   return groups;
 }
 
@@ -153,7 +159,7 @@ async function setObjectColorBatch(api, modelId, runtimeIds, color, label) {
       }
     );
 
-    log(`${label}: batch ${i + 1}/${batches.length} (${ids.length} object)`);
+    log(`${label}: batch ${i + 1}/${batches.length} (${ids.length} objects)`);
   }
 }
 
@@ -173,13 +179,13 @@ async function convertGuidsAcrossModels(api, modelGroups, guids) {
   const matches = new Array(guids.length).fill(null);
 
   for (const group of modelGroups) {
-    log(`Đổi GUID trên model ${group.modelId}...`);
+    log(`Converting GUIDs on model ${group.modelId}...`);
 
     let runtimeIds;
     try {
       runtimeIds = await api.viewer.convertToObjectRuntimeIds(group.modelId, guids);
     } catch (err) {
-      log(`Lỗi convert trên model ${group.modelId}: ${err?.message || String(err)}`);
+      log(`Convert error on model ${group.modelId}: ${err?.message || String(err)}`);
       continue;
     }
 
@@ -219,85 +225,128 @@ function buildApprovedSetsByModel(matches) {
   return map;
 }
 
-function extractHierarchyIds(input) {
-  const ids = new Set();
+function parseWeightValue(value) {
+  if (typeof value === "number") return value;
 
-  function walk(node) {
-    if (!node) return;
+  if (typeof value !== "string") return null;
 
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
+  let s = value.trim();
+  if (!s) return null;
 
-    if (typeof node.id === "number") ids.add(node.id);
-    if (typeof node.entityId === "number") ids.add(node.entityId);
-    if (typeof node.runtimeId === "number") ids.add(node.runtimeId);
+  s = s.replace(/,/g, "");
+  const match = s.match(/-?\d+(\.\d+)?/);
+  if (!match) return null;
 
-    if (Array.isArray(node.children)) walk(node.children);
-    if (Array.isArray(node.parents)) walk(node.parents);
-    if (Array.isArray(node.entities)) walk(node.entities);
-  }
-
-  walk(input);
-  return Array.from(ids);
+  const n = Number(match[0]);
+  return Number.isFinite(n) ? n : null;
 }
 
-async function buildGrayIdsByModel(api, modelGroups, approvedSetsByModel) {
-  const result = new Map();
+function extractWeightFromObjectProperties(objectProps) {
+  const sets = objectProps?.properties || [];
+  for (const set of sets) {
+    const props = set?.properties || [];
+    for (const prop of props) {
+      const name = String(prop?.name || "").trim();
+      if (!WEIGHT_KEYS.includes(name)) continue;
 
-  for (const group of modelGroups) {
-    const approvedIds = Array.from(approvedSetsByModel.get(group.modelId) || new Set());
-    const protectedIds = new Set(approvedIds);
+      const weight = parseWeightValue(prop?.value);
+      if (weight !== null) return weight;
+    }
+  }
+  return null;
+}
 
-    if (approvedIds.length) {
-      try {
-        const parents = await api.viewer.getHierarchyParents(
-          group.modelId,
-          approvedIds,
-          undefined,
-          true,
-          false
-        );
+async function sumWeightForIds(api, modelId, runtimeIds, label) {
+  let total = 0;
+  let hitCount = 0;
 
-        const parentIds = extractHierarchyIds(parents);
-        parentIds.forEach(id => protectedIds.add(id));
+  const batches = chunkArray(runtimeIds, 300);
 
-        log(`Parent ids được bảo vệ model ${group.modelId}: ${parentIds.length}`);
-      } catch (err) {
-        log(`Không lấy được hierarchy parents model ${group.modelId}: ${err?.message || String(err)}`);
+  for (let i = 0; i < batches.length; i++) {
+    const ids = batches[i];
+    if (!ids.length) continue;
+
+    let objectProps = [];
+    try {
+      objectProps = await api.viewer.getObjectProperties(modelId, ids);
+    } catch (err) {
+      log(`${label} property batch ${i + 1}/${batches.length} failed: ${err?.message || String(err)}`);
+      continue;
+    }
+
+    for (const obj of objectProps || []) {
+      const w = extractWeightFromObjectProperties(obj);
+      if (w !== null) {
+        total += w;
+        hitCount++;
       }
     }
 
-    const grayIds = group.runtimeIds.filter(id => !protectedIds.has(id));
-    result.set(group.modelId, grayIds);
+    log(`${label} weight batch ${i + 1}/${batches.length} done.`);
   }
 
-  return result;
+  return { total, hitCount };
+}
+
+async function calculateWeights(api, modelGroups, approvedSetsByModel) {
+  let totalModelWeight = 0;
+  let greenWeight = 0;
+  let totalWeightHits = 0;
+  let greenWeightHits = 0;
+
+  for (const group of modelGroups) {
+    const allIds = group.runtimeIds;
+    const greenIds = Array.from(approvedSetsByModel.get(group.modelId) || new Set());
+
+    const totalRes = await sumWeightForIds(api, group.modelId, allIds, `Total model ${group.modelId}`);
+    totalModelWeight += totalRes.total;
+    totalWeightHits += totalRes.hitCount;
+
+    if (greenIds.length) {
+      const greenRes = await sumWeightForIds(api, group.modelId, greenIds, `Green model ${group.modelId}`);
+      greenWeight += greenRes.total;
+      greenWeightHits += greenRes.hitCount;
+    }
+  }
+
+  log(`Weight properties found (total model): ${totalWeightHits}`);
+  log(`Weight properties found (green objects): ${greenWeightHits}`);
+
+  return {
+    totalModelWeight,
+    greenWeight
+  };
+}
+
+function formatWeight(n) {
+  if (!Number.isFinite(n)) return "-";
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
 }
 
 async function applyColorWorkflow() {
   const api = await initAPI();
 
   if (!excelRows.length) {
-    log("Chưa có dữ liệu Excel.");
+    log("No Excel data loaded.");
     return;
   }
 
-  const grayOthers = shouldGrayOthers();
   const excelGuids = normalizeExcelGuids(excelRows);
   const modelGroups = await getLoadedModelGroups();
   const totalObjects = countAllObjects(modelGroups);
 
-  log("Tổng object trong viewer: " + totalObjects);
-  log("Số GUID duy nhất trong Excel: " + excelGuids.length);
+  log("Total viewer objects: " + totalObjects);
+  log("Unique Excel GUIDs: " + excelGuids.length);
 
   if (!excelGuids.length) {
-    throw new Error("Excel không có GUID hợp lệ.");
+    throw new Error("Excel does not contain valid GUIDs.");
   }
 
-  log("Bắt đầu đổi GUID -> runtimeId...");
-  log("Test GUID đầu tiên: " + excelGuids[0]);
+  log("Converting GUIDs to runtime IDs...");
+  log("First test GUID: " + excelGuids[0]);
 
   try {
     const testRuntimeIds = await api.viewer.convertToObjectRuntimeIds(
@@ -306,7 +355,7 @@ async function applyColorWorkflow() {
     );
     log("Test runtimeIds[0]: " + JSON.stringify(testRuntimeIds));
   } catch (err) {
-    log("Test convert lỗi: " + (err?.message || String(err)));
+    log("Test convert failed: " + (err?.message || String(err)));
   }
 
   const matches = await convertGuidsAcrossModels(api, modelGroups, excelGuids);
@@ -322,59 +371,45 @@ async function applyColorWorkflow() {
     greenObjectCount += ids.size;
   }
 
-  const unmatchedCount = excelGuids.length - matchedGuidCount;
+  const unmatchedGuidCount = excelGuids.length - matchedGuidCount;
 
-  let grayCount = 0;
-  let grayIdsByModel = new Map();
-
-  if (grayOthers) {
-    grayIdsByModel = await buildGrayIdsByModel(api, modelGroups, approvedSetsByModel);
-    for (const [, ids] of grayIdsByModel) {
-      grayCount += ids.length;
-    }
-  } else {
-    grayCount = "-";
-  }
-
-  log("GUID match: " + matchedGuidCount);
-  log("GUID không match: " + unmatchedCount);
-  log("Object xanh thực tế: " + greenObjectCount);
-  log("Object xám thực tế: " + grayCount);
-
-  if (grayOthers) {
-    for (const [modelId, ids] of grayIdsByModel.entries()) {
-      await setObjectColorBatch(api, modelId, ids, OTHER_COLOR, `Tô xám model ${modelId}`);
-    }
-  } else {
-    log("Bỏ qua bước tô xám phần còn lại.");
-  }
+  log("Matched GUIDs: " + matchedGuidCount);
+  log("Unmatched GUIDs: " + unmatchedGuidCount);
+  log("Approved objects (green): " + greenObjectCount);
 
   for (const [modelId, idSet] of approvedSetsByModel.entries()) {
     const ids = Array.from(idSet);
-    await setObjectColorBatch(api, modelId, ids, APPROVED_COLOR, `Tô xanh model ${modelId}`);
+    await setObjectColorBatch(api, modelId, ids, APPROVED_COLOR, `Color green on model ${modelId}`);
   }
+
+  log("Calculating weights...");
+  const weightSummary = await calculateWeights(api, modelGroups, approvedSetsByModel);
 
   updateStats({
     totalObjects,
-    excelGuidCount: excelGuids.length,
-    greenCount: greenObjectCount,
-    grayCount,
-    unmatchedCount
+    totalWeight: formatWeight(weightSummary.totalModelWeight),
+    greenObjectCount,
+    greenWeight: formatWeight(weightSummary.greenWeight)
   });
 
-  log("Hoàn tất.");
-  log(grayOthers
-    ? "Kết quả: Có trong Excel = xanh | Không có trong Excel = xám"
-    : "Kết quả: Chỉ tô xanh phần có trong Excel");
+  log("Done.");
+  log("Result: Objects found in Excel are highlighted in green.");
 }
 
-async function resetColors() {
+async function resetViewer() {
   const api = await initAPI();
   clearLog();
-  log("Đang reset viewer...");
+  log("Resetting viewer...");
+
+  try {
+    await api.viewer.setObjectState(undefined, { color: "reset", visible: "reset" });
+  } catch (err) {
+    log("Color reset fallback: " + (err?.message || String(err)));
+  }
+
   await api.viewer.reset();
   updateStats();
-  log("Đã reset viewer.");
+  log("Viewer reset completed.");
 }
 
 document.getElementById("readBtn").addEventListener("click", async () => {
@@ -382,7 +417,7 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     const file = document.getElementById("fileInput").files[0];
 
     if (!file) {
-      log("Chưa chọn file Excel.");
+      log("Please choose an Excel file.");
       return;
     }
 
@@ -392,8 +427,8 @@ document.getElementById("readBtn").addEventListener("click", async () => {
 
     excelRows = await readExcel(file);
 
-    log(`Đọc xong ${excelRows.length} dòng.`);
-    log("5 GUID đầu:");
+    log(`Excel rows loaded: ${excelRows.length}`);
+    log("First 5 GUIDs:");
     excelRows.slice(0, 5).forEach(r => {
       log(String(r.GUID || "").trim());
     });
@@ -401,16 +436,16 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     await applyColorWorkflow();
   } catch (err) {
     console.error(err);
-    log("Lỗi: " + (err?.message || JSON.stringify(err) || String(err)));
+    log("Error: " + (err?.message || JSON.stringify(err) || String(err)));
   }
 });
 
 document.getElementById("resetBtn").addEventListener("click", async () => {
   try {
-    await resetColors();
+    await resetViewer();
   } catch (err) {
     console.error(err);
-    log("Lỗi reset: " + (err?.message || JSON.stringify(err) || String(err)));
+    log("Reset error: " + (err?.message || JSON.stringify(err) || String(err)));
   }
 });
 
