@@ -38,10 +38,10 @@ function updateStats({
   if (!el) return;
 
   el.innerHTML =
-    `Tổng số cấu kiện model: <strong>${totalObjects}</strong><br />` +
-    `Tổng khối lượng model: <strong>${totalWeight}</strong><br />` +
-    `Số cấu kiện màu xanh: <strong>${greenObjectCount}</strong><br />` +
-    `Khối lượng màu xanh: <strong>${greenWeight}</strong>`;
+    `Tổng số cấu kiện dự án: <strong>${totalObjects}</strong><br />` +
+    `Tổng khối lượng dự án: <strong>${totalWeight}</strong><br />` +
+    `Số cấu kiện đang triển khai: <strong>${greenObjectCount}</strong><br />` +
+    `Khối lượng đang triển khai: <strong>${greenWeight}</strong>`;
 }
 
 async function initAPI() {
@@ -291,8 +291,6 @@ async function sumWeightForIds(api, modelId, runtimeIds, label) {
 async function calculateWeights(api, modelGroups, approvedSetsByModel) {
   let totalModelWeight = 0;
   let greenWeight = 0;
-  let totalWeightHits = 0;
-  let greenWeightHits = 0;
 
   for (const group of modelGroups) {
     const allIds = group.runtimeIds;
@@ -300,17 +298,12 @@ async function calculateWeights(api, modelGroups, approvedSetsByModel) {
 
     const totalRes = await sumWeightForIds(api, group.modelId, allIds, `Total model ${group.modelId}`);
     totalModelWeight += totalRes.total;
-    totalWeightHits += totalRes.hitCount;
 
     if (greenIds.length) {
       const greenRes = await sumWeightForIds(api, group.modelId, greenIds, `Green model ${group.modelId}`);
       greenWeight += greenRes.total;
-      greenWeightHits += greenRes.hitCount;
     }
   }
-
-  log(`Weight properties found (total model): ${totalWeightHits}`);
-  log(`Weight properties found (green objects): ${greenWeightHits}`);
 
   return {
     totalModelWeight,
@@ -345,36 +338,14 @@ async function applyColorWorkflow() {
     throw new Error("Excel does not contain valid GUIDs.");
   }
 
-  log("Converting GUIDs to runtime IDs...");
-  log("First test GUID: " + excelGuids[0]);
-
-  try {
-    const testRuntimeIds = await api.viewer.convertToObjectRuntimeIds(
-      modelGroups[0].modelId,
-      [excelGuids[0]]
-    );
-    log("Test runtimeIds[0]: " + JSON.stringify(testRuntimeIds));
-  } catch (err) {
-    log("Test convert failed: " + (err?.message || String(err)));
-  }
-
   const matches = await convertGuidsAcrossModels(api, modelGroups, excelGuids);
   const approvedSetsByModel = buildApprovedSetsByModel(matches);
-
-  let matchedGuidCount = 0;
-  for (const item of matches) {
-    if (item) matchedGuidCount++;
-  }
 
   let greenObjectCount = 0;
   for (const [, ids] of approvedSetsByModel.entries()) {
     greenObjectCount += ids.size;
   }
 
-  const unmatchedGuidCount = excelGuids.length - matchedGuidCount;
-
-  log("Matched GUIDs: " + matchedGuidCount);
-  log("Unmatched GUIDs: " + unmatchedGuidCount);
   log("Approved objects (green): " + greenObjectCount);
 
   for (const [modelId, idSet] of approvedSetsByModel.entries()) {
@@ -428,11 +399,6 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     excelRows = await readExcel(file);
 
     log(`Excel rows loaded: ${excelRows.length}`);
-    log("First 5 GUIDs:");
-    excelRows.slice(0, 5).forEach(r => {
-      log(String(r.GUID || "").trim());
-    });
-
     await applyColorWorkflow();
   } catch (err) {
     console.error(err);
