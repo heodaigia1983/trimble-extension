@@ -35,8 +35,7 @@ function updateStats({
 
 function shouldGrayOthers() {
   const checkbox = document.getElementById("grayOthersCheckbox");
-  if (!checkbox) return true; // fallback an toàn
-  return checkbox.checked;
+  return checkbox ? checkbox.checked : true;
 }
 
 async function initAPI() {
@@ -99,29 +98,6 @@ function extractRuntimeIdsFromGroup(group) {
   if (Array.isArray(group.objects)) {
     for (const obj of group.objects) {
       if (typeof obj?.id === "number") ids.add(obj.id);
-      if (typeof obj?.runtimeId === "number") ids.add(obj.runtimeId);
-
-      if (Array.isArray(obj?.objectRuntimeIds)) {
-        obj.objectRuntimeIds.forEach(x => {
-          if (typeof x === "number") ids.add(x);
-        });
-      }
-    }
-  }
-
-  if (Array.isArray(group.objectRuntimeIds)) {
-    group.objectRuntimeIds.forEach(x => {
-      if (typeof x === "number") ids.add(x);
-    });
-  }
-
-  if (Array.isArray(group.modelObjectIds)) {
-    for (const item of group.modelObjectIds) {
-      if (Array.isArray(item?.objectRuntimeIds)) {
-        item.objectRuntimeIds.forEach(x => {
-          if (typeof x === "number") ids.add(x);
-        });
-      }
     }
   }
 
@@ -161,6 +137,7 @@ async function setObjectColorBatch(api, modelId, runtimeIds, color, label) {
 
   for (let i = 0; i < batches.length; i++) {
     const ids = batches[i];
+    if (!ids.length) continue;
 
     await api.viewer.setObjectState(
       {
@@ -177,27 +154,6 @@ async function setObjectColorBatch(api, modelId, runtimeIds, color, label) {
     );
 
     log(`${label}: batch ${i + 1}/${batches.length} (${ids.length} object)`);
-  }
-}
-
-async function applyGrayToAllObjects(api, modelGroups) {
-  // Thử tô xám toàn cục trước
-  try {
-    await api.viewer.setObjectState(undefined, { color: OTHER_COLOR });
-    log("Đã tô xám toàn cục.");
-  } catch (err) {
-    log("Tô xám toàn cục lỗi: " + (err?.message || String(err)));
-  }
-
-  // Sau đó tô xám lại từng model theo runtime ids để chắc chắn
-  for (const group of modelGroups) {
-    await setObjectColorBatch(
-      api,
-      group.modelId,
-      group.runtimeIds,
-      OTHER_COLOR,
-      `Tô xám model ${group.modelId}`
-    );
   }
 }
 
@@ -234,7 +190,7 @@ async function convertGuidsAcrossModels(api, modelGroups, guids) {
   return matches;
 }
 
-function buildGreenGroups(matches) {
+function buildApprovedSetsByModel(matches) {
   const map = new Map();
 
   for (const item of matches) {
@@ -248,6 +204,18 @@ function buildGreenGroups(matches) {
   }
 
   return map;
+}
+
+function buildOtherIdsByModel(modelGroups, approvedSetsByModel) {
+  const result = new Map();
+
+  for (const group of modelGroups) {
+    const approvedSet = approvedSetsByModel.get(group.modelId) || new Set();
+    const others = group.runtimeIds.filter(id => !approvedSet.has(id));
+    result.set(group.modelId, others);
+  }
+
+  return result;
 }
 
 async function applyColorWorkflow() {
@@ -266,23 +234,8 @@ async function applyColorWorkflow() {
   log("Tổng object trong viewer: " + totalObjects);
   log("Số GUID duy nhất trong Excel: " + excelGuids.length);
 
-  updateStats({
-    totalObjects,
-    excelGuidCount: excelGuids.length,
-    greenCount: 0,
-    grayCount: grayOthers ? totalObjects : "-",
-    unmatchedCount: "-"
-  });
-
   if (!excelGuids.length) {
     throw new Error("Excel không có GUID hợp lệ.");
-  }
-
-  if (grayOthers) {
-    log("Bắt đầu tô xám toàn bộ phần không nằm trong Excel...");
-    await applyGrayToAllObjects(api, modelGroups);
-  } else {
-    log("Bỏ qua bước tô xám phần còn lại.");
   }
 
   log("Bắt đầu đổi GUID -> runtimeId...");
@@ -299,29 +252,36 @@ async function applyColorWorkflow() {
   }
 
   const matches = await convertGuidsAcrossModels(api, modelGroups, excelGuids);
-  const greenGroups = buildGreenGroups(matches);
+  const approvedSetsByModel = buildApprovedSetsByModel(matches);
 
   let matchedCount = 0;
-  for (const [, ids] of greenGroups) {
+  for (const [, ids] of approvedSetsByModel) {
     matchedCount += ids.size;
   }
 
   const unmatchedCount = excelGuids.length - matchedCount;
-  const grayCount = grayOthers ? Math.max(0, totalObjects - matchedCount) : "-";
+  const otherIdsByModel = buildOtherIdsByModel(modelGroups, approvedSetsByModel);
+
+  let grayCount = 0;
+  for (const [, ids] of otherIdsByModel) {
+    grayCount += ids.length;
+  }
 
   log("Match: " + matchedCount);
   log("Không match: " + unmatchedCount);
 
-  for (const [modelId, idSet] of greenGroups.entries()) {
-    const ids = Array.from(idSet);
+  if (grayOthers) {
+    for (const [modelId, ids] of otherIdsByModel.entries()) {
+      await setObjectColorBatch(api, modelId, ids, OTHER_COLOR, `Tô xám model ${modelId}`);
+    }
+  } else {
+    grayCount = "-";
+    log("Bỏ qua bước tô xám phần còn lại.");
+  }
 
-    await setObjectColorBatch(
-      api,
-      modelId,
-      ids,
-      APPROVED_COLOR,
-      `Tô xanh model ${modelId}`
-    );
+  for (const [modelId, idSet] of approvedSetsByModel.entries()) {
+    const ids = Array.from(idSet);
+    await setObjectColorBatch(api, modelId, ids, APPROVED_COLOR, `Tô xanh model ${modelId}`);
   }
 
   updateStats({
@@ -333,22 +293,20 @@ async function applyColorWorkflow() {
   });
 
   log("Hoàn tất.");
-  if (grayOthers) {
-    log("Kết quả: Có trong Excel = xanh | Không có trong Excel = xám");
-  } else {
-    log("Kết quả: Chỉ tô xanh phần có trong Excel");
-  }
+  log(grayOthers
+    ? "Kết quả: Có trong Excel = xanh | Không có trong Excel = xám"
+    : "Kết quả: Chỉ tô xanh phần có trong Excel");
 }
 
 async function resetColors() {
+  const api = await initAPI();
   clearLog();
-  log("Đang reset màu bằng cách tải lại viewer...");
+  log("Đang reset viewer...");
 
-  if (window.parent && window.parent !== window) {
-    window.parent.location.reload();
-  } else {
-    window.location.reload();
-  }
+  await api.viewer.reset();
+  updateStats();
+
+  log("Đã reset model/camera/tools về mặc định.");
 }
 
 document.getElementById("readBtn").addEventListener("click", async () => {
@@ -361,6 +319,7 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     }
 
     clearLog();
+    updateStats();
     await initAPI();
 
     excelRows = await readExcel(file);
@@ -387,5 +346,4 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
   }
 });
 
-// khởi tạo stats mặc định
 updateStats();
