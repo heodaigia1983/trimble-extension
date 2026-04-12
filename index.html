@@ -8,14 +8,29 @@
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
 
   <style>
-    body { font-family: Arial, sans-serif; padding: 12px; }
-    input, button { margin: 8px 0; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 12px;
+      margin: 0;
+    }
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+    }
+
+    input, button {
+      margin: 6px 0;
+    }
+
     #log {
       white-space: pre-wrap;
       background: #f3f3f3;
       padding: 8px;
-      height: 180px;
+      height: 260px;
       overflow: auto;
+      margin-top: 8px;
+      border: 1px solid #ddd;
     }
   </style>
 </head>
@@ -28,6 +43,6 @@
 
   <div id="log"></div>
 
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
