@@ -157,6 +157,20 @@ async function setObjectColorBatch(api, modelId, runtimeIds, color, label) {
   }
 }
 
+function normalizeConvertedIds(value) {
+  if (value === null || value === undefined) return [];
+
+  if (typeof value === "number") return [value];
+
+  if (Array.isArray(value)) {
+    return value
+      .flat(Infinity)
+      .filter(v => typeof v === "number");
+  }
+
+  return [];
+}
+
 async function convertGuidsAcrossModels(api, modelGroups, guids) {
   const matches = new Array(guids.length).fill(null);
 
@@ -176,11 +190,12 @@ async function convertGuidsAcrossModels(api, modelGroups, guids) {
     for (let i = 0; i < guids.length; i++) {
       if (matches[i]) continue;
 
-      const runtimeId = runtimeIds[i];
-      if (runtimeId !== undefined && runtimeId !== null) {
+      const ids = normalizeConvertedIds(runtimeIds[i]);
+
+      if (ids.length > 0) {
         matches[i] = {
           modelId: group.modelId,
-          runtimeId: runtimeId,
+          runtimeIds: ids,
           guid: guids[i]
         };
       }
@@ -200,7 +215,8 @@ function buildApprovedSetsByModel(matches) {
       map.set(item.modelId, new Set());
     }
 
-    map.get(item.modelId).add(item.runtimeId);
+    const set = map.get(item.modelId);
+    item.runtimeIds.forEach(id => set.add(id));
   }
 
   return map;
@@ -254,21 +270,28 @@ async function applyColorWorkflow() {
   const matches = await convertGuidsAcrossModels(api, modelGroups, excelGuids);
   const approvedSetsByModel = buildApprovedSetsByModel(matches);
 
-  let matchedCount = 0;
-  for (const [, ids] of approvedSetsByModel) {
-    matchedCount += ids.size;
+  let matchedGuidCount = 0;
+  for (const item of matches) {
+    if (item) matchedGuidCount++;
   }
 
-  const unmatchedCount = excelGuids.length - matchedCount;
+  let greenObjectCount = 0;
+  for (const [, ids] of approvedSetsByModel.entries()) {
+    greenObjectCount += ids.size;
+  }
+
+  const unmatchedCount = excelGuids.length - matchedGuidCount;
   const otherIdsByModel = buildOtherIdsByModel(modelGroups, approvedSetsByModel);
 
   let grayCount = 0;
-  for (const [, ids] of otherIdsByModel) {
+  for (const [, ids] of otherIdsByModel.entries()) {
     grayCount += ids.length;
   }
 
-  log("Match: " + matchedCount);
-  log("Không match: " + unmatchedCount);
+  log("GUID match: " + matchedGuidCount);
+  log("GUID không match: " + unmatchedCount);
+  log("Object xanh thực tế: " + greenObjectCount);
+  log("Object xám thực tế: " + grayCount);
 
   if (grayOthers) {
     for (const [modelId, ids] of otherIdsByModel.entries()) {
@@ -287,7 +310,7 @@ async function applyColorWorkflow() {
   updateStats({
     totalObjects,
     excelGuidCount: excelGuids.length,
-    greenCount: matchedCount,
+    greenCount: greenObjectCount,
     grayCount,
     unmatchedCount
   });
