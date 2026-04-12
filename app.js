@@ -5,11 +5,14 @@ const APPROVED_COLOR = "#4CAF50"; // xanh
 const OTHER_COLOR = "#BDBDBD";    // xám
 
 function log(msg) {
-  document.getElementById("log").textContent += msg + "\n";
+  const el = document.getElementById("log");
+  if (el) el.textContent += msg + "\n";
+  console.log(msg);
 }
 
 function clearLog() {
-  document.getElementById("log").textContent = "";
+  const el = document.getElementById("log");
+  if (el) el.textContent = "";
 }
 
 function updateStats({
@@ -19,12 +22,21 @@ function updateStats({
   grayCount = "-",
   unmatchedCount = "-"
 } = {}) {
-  document.getElementById("stats").innerHTML =
+  const el = document.getElementById("stats");
+  if (!el) return;
+
+  el.innerHTML =
     `Tổng object: ${totalObjects}<br />` +
     `GUID trong Excel: ${excelGuidCount}<br />` +
     `Xanh: ${greenCount}<br />` +
     `Xám: ${grayCount}<br />` +
     `Không match: ${unmatchedCount}`;
+}
+
+function shouldGrayOthers() {
+  const checkbox = document.getElementById("grayOthersCheckbox");
+  if (!checkbox) return true; // fallback an toàn
+  return checkbox.checked;
 }
 
 async function initAPI() {
@@ -79,18 +91,43 @@ function chunkArray(arr, size) {
   return out;
 }
 
-/*
-  getObjects() trả về:
-  [
-    {
-      modelId: "...",
-      objects: [
-        { id: 123, ... },
-        { id: 456, ... }
-      ]
+function extractRuntimeIdsFromGroup(group) {
+  const ids = new Set();
+
+  if (!group) return [];
+
+  if (Array.isArray(group.objects)) {
+    for (const obj of group.objects) {
+      if (typeof obj?.id === "number") ids.add(obj.id);
+      if (typeof obj?.runtimeId === "number") ids.add(obj.runtimeId);
+
+      if (Array.isArray(obj?.objectRuntimeIds)) {
+        obj.objectRuntimeIds.forEach(x => {
+          if (typeof x === "number") ids.add(x);
+        });
+      }
     }
-  ]
-*/
+  }
+
+  if (Array.isArray(group.objectRuntimeIds)) {
+    group.objectRuntimeIds.forEach(x => {
+      if (typeof x === "number") ids.add(x);
+    });
+  }
+
+  if (Array.isArray(group.modelObjectIds)) {
+    for (const item of group.modelObjectIds) {
+      if (Array.isArray(item?.objectRuntimeIds)) {
+        item.objectRuntimeIds.forEach(x => {
+          if (typeof x === "number") ids.add(x);
+        });
+      }
+    }
+  }
+
+  return Array.from(ids);
+}
+
 async function getLoadedModelGroups() {
   const api = await initAPI();
   const raw = await api.viewer.getObjects();
@@ -102,14 +139,7 @@ async function getLoadedModelGroups() {
   const groups = raw
     .map(group => {
       const modelId = group?.modelId;
-      const runtimeIds = Array.isArray(group?.objects)
-        ? [...new Set(
-            group.objects
-              .map(obj => obj?.id)
-              .filter(id => typeof id === "number")
-          )]
-        : [];
-
+      const runtimeIds = extractRuntimeIdsFromGroup(group);
       return { modelId, runtimeIds };
     })
     .filter(group => group.modelId && group.runtimeIds.length > 0);
@@ -120,6 +150,10 @@ async function getLoadedModelGroups() {
 
   log("Loaded modelIds trong viewer: " + groups.map(g => g.modelId).join(", "));
   return groups;
+}
+
+function countAllObjects(modelGroups) {
+  return modelGroups.reduce((sum, g) => sum + g.runtimeIds.length, 0);
 }
 
 async function setObjectColorBatch(api, modelId, runtimeIds, color, label) {
@@ -147,17 +181,23 @@ async function setObjectColorBatch(api, modelId, runtimeIds, color, label) {
 }
 
 async function applyGrayToAllObjects(api, modelGroups) {
-  // Lớp 1: thử tô xám toàn cục
+  // Thử tô xám toàn cục trước
   try {
     await api.viewer.setObjectState(undefined, { color: OTHER_COLOR });
-    log("Đã tô xám toàn cục bằng selector undefined.");
+    log("Đã tô xám toàn cục.");
   } catch (err) {
-    log("Tô xám toàn cục lỗi, sẽ fallback sang tô theo runtimeIds: " + (err?.message || String(err)));
+    log("Tô xám toàn cục lỗi: " + (err?.message || String(err)));
   }
 
-  // Lớp 2: tô xám theo toàn bộ runtimeIds lấy đúng từ getObjects()
+  // Sau đó tô xám lại từng model theo runtime ids để chắc chắn
   for (const group of modelGroups) {
-    await setObjectColorBatch(api, group.modelId, group.runtimeIds, OTHER_COLOR, `Tô xám model ${group.modelId}`);
+    await setObjectColorBatch(
+      api,
+      group.modelId,
+      group.runtimeIds,
+      OTHER_COLOR,
+      `Tô xám model ${group.modelId}`
+    );
   }
 }
 
@@ -174,6 +214,8 @@ async function convertGuidsAcrossModels(api, modelGroups, guids) {
       log(`Lỗi convert trên model ${group.modelId}: ${err?.message || String(err)}`);
       continue;
     }
+
+    if (!Array.isArray(runtimeIds)) continue;
 
     for (let i = 0; i < guids.length; i++) {
       if (matches[i]) continue;
@@ -208,10 +250,6 @@ function buildGreenGroups(matches) {
   return map;
 }
 
-function countAllObjects(modelGroups) {
-  return modelGroups.reduce((sum, g) => sum + g.runtimeIds.length, 0);
-}
-
 async function applyColorWorkflow() {
   const api = await initAPI();
 
@@ -220,7 +258,7 @@ async function applyColorWorkflow() {
     return;
   }
 
-  const grayOthers = document.getElementById("grayOthersCheckbox").checked;
+  const grayOthers = shouldGrayOthers();
   const excelGuids = normalizeExcelGuids(excelRows);
   const modelGroups = await getLoadedModelGroups();
   const totalObjects = countAllObjects(modelGroups);
@@ -250,9 +288,15 @@ async function applyColorWorkflow() {
   log("Bắt đầu đổi GUID -> runtimeId...");
   log("Test GUID đầu tiên: " + excelGuids[0]);
 
-  const firstModelId = modelGroups[0].modelId;
-  const testRuntimeIds = await api.viewer.convertToObjectRuntimeIds(firstModelId, [excelGuids[0]]);
-  log("Test runtimeIds[0]: " + JSON.stringify(testRuntimeIds));
+  try {
+    const testRuntimeIds = await api.viewer.convertToObjectRuntimeIds(
+      modelGroups[0].modelId,
+      [excelGuids[0]]
+    );
+    log("Test runtimeIds[0]: " + JSON.stringify(testRuntimeIds));
+  } catch (err) {
+    log("Test convert lỗi: " + (err?.message || String(err)));
+  }
 
   const matches = await convertGuidsAcrossModels(api, modelGroups, excelGuids);
   const greenGroups = buildGreenGroups(matches);
@@ -270,7 +314,14 @@ async function applyColorWorkflow() {
 
   for (const [modelId, idSet] of greenGroups.entries()) {
     const ids = Array.from(idSet);
-    await setObjectColorBatch(api, modelId, ids, APPROVED_COLOR, `Tô xanh model ${modelId}`);
+
+    await setObjectColorBatch(
+      api,
+      modelId,
+      ids,
+      APPROVED_COLOR,
+      `Tô xanh model ${modelId}`
+    );
   }
 
   updateStats({
@@ -290,25 +341,14 @@ async function applyColorWorkflow() {
 }
 
 async function resetColors() {
-  const api = await initAPI();
-
   clearLog();
-  log("Đang reset màu...");
+  log("Đang reset màu bằng cách tải lại viewer...");
 
-  try {
-    await api.viewer.setObjectState(undefined, { color: "reset" });
-    log("Đã reset màu về mặc định.");
-  } catch (err) {
-    log("Reset màu lỗi: " + (err?.message || String(err)));
+  if (window.parent && window.parent !== window) {
+    window.parent.location.reload();
+  } else {
+    window.location.reload();
   }
-
-  updateStats({
-    totalObjects: "-",
-    excelGuidCount: "-",
-    greenCount: "-",
-    grayCount: "-",
-    unmatchedCount: "-"
-  });
 }
 
 document.getElementById("readBtn").addEventListener("click", async () => {
@@ -346,3 +386,6 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
     log("Lỗi reset: " + (err?.message || JSON.stringify(err) || String(err)));
   }
 });
+
+// khởi tạo stats mặc định
+updateStats();
