@@ -59,83 +59,20 @@ function normalizeRows(rows) {
 async function getLoadedModelId() {
   const api = await initAPI();
 
-  try {
-    const viewerObjects = await api.viewer.getObjects();
+  const modelObjects = await api.viewer.getObjects();
 
-    if (Array.isArray(viewerObjects) && viewerObjects.length) {
-      const modelIds = [...new Set(viewerObjects.map(x => x.modelId).filter(Boolean))];
-      if (modelIds.length) {
-        log("Loaded modelIds trong viewer: " + modelIds.join(", "));
-        return modelIds[0];
-      }
-    }
-
-    if (
-      viewerObjects &&
-      Array.isArray(viewerObjects.modelObjectIds) &&
-      viewerObjects.modelObjectIds.length
-    ) {
-      const modelIds = [
-        ...new Set(viewerObjects.modelObjectIds.map(x => x.modelId).filter(Boolean))
-      ];
-      if (modelIds.length) {
-        log("Loaded modelIds trong viewer: " + modelIds.join(", "));
-        return modelIds[0];
-      }
-    }
-  } catch (err) {
-    log("getObjects fallback: " + (err?.message || String(err)));
+  if (!modelObjects || !modelObjects.length) {
+    throw new Error("Viewer chưa trả về object nào.");
   }
 
-  const models = await api.viewer.getModels();
+  const modelIds = [...new Set(modelObjects.map(x => x.modelId).filter(Boolean))];
+  log("Loaded modelIds trong viewer: " + modelIds.join(", "));
 
-  if (!models || !models.length) {
-    throw new Error("Không tìm thấy model đang load.");
+  if (!modelIds.length) {
+    throw new Error("Không lấy được modelId từ viewer.");
   }
 
-  log("viewer.getModels(): " + models.map(m => m.id).join(", "));
-  return models[0].id;
-}
-
-function extractRuntimeIdsFromViewerObjects(raw, modelId) {
-  const ids = [];
-
-  function pushIds(item) {
-    if (!item) return;
-    if (item.modelId && modelId && item.modelId !== modelId) return;
-
-    if (Array.isArray(item.objectRuntimeIds)) {
-      ids.push(...item.objectRuntimeIds.filter(x => x !== undefined && x !== null));
-    }
-
-    if (item.objectRuntimeId !== undefined && item.objectRuntimeId !== null) {
-      ids.push(item.objectRuntimeId);
-    }
-
-    if (item.runtimeId !== undefined && item.runtimeId !== null) {
-      ids.push(item.runtimeId);
-    }
-
-    if (Array.isArray(item.ids)) {
-      ids.push(...item.ids.filter(x => x !== undefined && x !== null));
-    }
-  }
-
-  if (Array.isArray(raw)) {
-    raw.forEach(pushIds);
-  } else if (raw) {
-    pushIds(raw);
-
-    if (Array.isArray(raw.modelObjectIds)) {
-      raw.modelObjectIds.forEach(pushIds);
-    }
-
-    if (Array.isArray(raw.objects)) {
-      raw.objects.forEach(pushIds);
-    }
-  }
-
-  return [...new Set(ids)];
+  return modelIds[0];
 }
 
 function chunkArray(arr, size) {
@@ -146,7 +83,7 @@ function chunkArray(arr, size) {
   return result;
 }
 
-async function setColorInBatches(api, modelId, runtimeIds, color, label) {
+async function setGreenInBatches(api, modelId, runtimeIds) {
   const batches = chunkArray(runtimeIds, 1000);
 
   for (let i = 0; i < batches.length; i++) {
@@ -162,25 +99,12 @@ async function setColorInBatches(api, modelId, runtimeIds, color, label) {
         ]
       },
       {
-        color: color
+        color: APPROVED_COLOR
       }
     );
 
-    log(`${label}: batch ${i + 1}/${batches.length} (${ids.length} object)`);
+    log(`Tô xanh: batch ${i + 1}/${batches.length} (${ids.length} object)`);
   }
-}
-
-async function grayAllObjects(api, modelId) {
-  const viewerObjects = await api.viewer.getObjects();
-  const allRuntimeIds = extractRuntimeIdsFromViewerObjects(viewerObjects, modelId);
-
-  if (!allRuntimeIds.length) {
-    throw new Error("Không lấy được danh sách object của model để tô xám.");
-  }
-
-  log("Tổng object trong viewer: " + allRuntimeIds.length);
-  await setColorInBatches(api, modelId, allRuntimeIds, OTHER_COLOR, "Tô xám");
-  return allRuntimeIds;
 }
 
 async function colorApprovedObjects() {
@@ -197,9 +121,9 @@ async function colorApprovedObjects() {
   log("ModelId: " + modelId);
   log("Số GUID duy nhất trong Excel: " + excelGuids.length);
 
-  // B1: tô xám toàn bộ model
+  // B1: tô xám TOÀN BỘ model
   log("Bắt đầu tô xám toàn bộ model...");
-  await grayAllObjects(api, modelId);
+  await api.viewer.setObjectState(undefined, { color: OTHER_COLOR });
 
   // B2: đổi GUID trong Excel -> runtimeId
   log("Bắt đầu đổi GUID -> runtimeId...");
@@ -242,7 +166,7 @@ async function colorApprovedObjects() {
   // B3: tô xanh phần có trong Excel
   if (approvedRuntimeIds.length) {
     log("Bắt đầu tô xanh phần có trong Excel...");
-    await setColorInBatches(api, modelId, approvedRuntimeIds, APPROVED_COLOR, "Tô xanh");
+    await setGreenInBatches(api, modelId, approvedRuntimeIds);
   }
 
   log("Hoàn tất.");
