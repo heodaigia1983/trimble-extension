@@ -15,8 +15,7 @@
     }
 
     h3 {
-      margin-top: 0;
-      margin-bottom: 12px;
+      margin: 0 0 12px 0;
     }
 
     input, button {
@@ -27,10 +26,17 @@
       white-space: pre-wrap;
       background: #f3f3f3;
       padding: 8px;
-      height: 260px;
+      height: 280px;
       overflow: auto;
       margin-top: 8px;
       border: 1px solid #ddd;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #555;
+      margin-top: 4px;
+      margin-bottom: 8px;
     }
   </style>
 </head>
@@ -41,8 +47,12 @@
   <br />
   <button id="readBtn">Đọc Excel</button>
 
+  <div class="hint">
+    Có trong Excel = xanh, không có trong Excel = xám
+  </div>
+
   <div id="log"></div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
