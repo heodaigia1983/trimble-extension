@@ -1,6 +1,7 @@
 let API = null;
 let excelRows = [];
 let workbookData = null;
+let firstSheetName = "";
 
 const APPROVED_COLOR = "#4CAF50";
 
@@ -45,6 +46,11 @@ function updateStats({
     `Khối lượng đang triển khai: <strong>${greenWeight}</strong>`;
 }
 
+function setSheetInfo(text) {
+  const el = document.getElementById("sheetInfo");
+  if (el) el.value = text || "";
+}
+
 async function initAPI() {
   if (API) return API;
 
@@ -74,30 +80,11 @@ function readWorkbook(file) {
   });
 }
 
-function populateSheetSelect(workbook) {
-  const select = document.getElementById("sheetSelect");
-  select.innerHTML = "";
-
+function getFirstSheetName(workbook) {
   if (!workbook || !Array.isArray(workbook.SheetNames) || workbook.SheetNames.length === 0) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "-- Không có sheet --";
-    select.appendChild(opt);
-    return;
+    return "";
   }
-
-  workbook.SheetNames.forEach((sheetName, index) => {
-    const opt = document.createElement("option");
-    opt.value = sheetName;
-    opt.textContent = sheetName;
-    if (index === 0) opt.selected = true;
-    select.appendChild(opt);
-  });
-}
-
-function getSelectedSheetName() {
-  const select = document.getElementById("sheetSelect");
-  return select ? String(select.value || "").trim() : "";
+  return String(workbook.SheetNames[0] || "").trim();
 }
 
 function buildSuggestedViewName(sheetName) {
@@ -118,19 +105,17 @@ function buildSuggestedViewName(sheetName) {
 
 function fillSuggestedViewName(force = false) {
   const input = document.getElementById("viewNameInput");
-  const sheetName = getSelectedSheetName();
-
   if (!input) return;
 
   if (force || !input.value.trim() || input.dataset.userEdited !== "1") {
-    input.value = buildSuggestedViewName(sheetName);
+    input.value = buildSuggestedViewName(firstSheetName);
     input.dataset.userEdited = "0";
   }
 }
 
 function sheetToRows(workbook, sheetName) {
   if (!workbook) throw new Error("Workbook chưa được nạp.");
-  if (!sheetName) throw new Error("Chưa chọn sheet.");
+  if (!sheetName) throw new Error("Không tìm thấy sheet đầu tiên.");
 
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) throw new Error(`Không tìm thấy sheet: ${sheetName}`);
@@ -388,6 +373,7 @@ async function applyColorWorkflow() {
   const modelGroups = await getLoadedModelGroups();
   const totalObjects = countAllObjects(modelGroups);
 
+  log("Using first sheet: " + firstSheetName);
   log("Total viewer objects: " + totalObjects);
   log("Unique Excel GUIDs: " + excelGuids.length);
 
@@ -445,13 +431,12 @@ async function saveCurrentView() {
 
   let viewName = String(document.getElementById("viewNameInput")?.value || "").trim();
   if (!viewName) {
-    viewName = buildSuggestedViewName(getSelectedSheetName());
+    viewName = buildSuggestedViewName(firstSheetName);
     const input = document.getElementById("viewNameInput");
     if (input) input.value = viewName;
   }
 
-  const sheetName = getSelectedSheetName() || "-";
-  const description = `Saved from Model Approval Colorizer | Sheet: ${sheetName} | Developed by Le Van Thao`;
+  const description = `Saved from Model Approval Colorizer | Sheet: ${firstSheetName || "-"} | Developed by Le Van Thao`;
 
   const createdView = await api.view.createView({
     name: viewName,
@@ -474,19 +459,21 @@ document.getElementById("fileInput").addEventListener("change", async (event) =>
     if (!file) return;
 
     workbookData = await readWorkbook(file);
-    populateSheetSelect(workbookData);
+    firstSheetName = getFirstSheetName(workbookData);
+
+    if (!firstSheetName) {
+      throw new Error("File Excel không có sheet.");
+    }
+
+    setSheetInfo(firstSheetName);
     fillSuggestedViewName(true);
 
     log("Workbook loaded.");
-    log("Available sheets: " + (workbookData.SheetNames || []).join(", "));
+    log("Using first sheet: " + firstSheetName);
   } catch (err) {
     console.error(err);
     log("Workbook load error: " + (err?.message || JSON.stringify(err) || String(err)));
   }
-});
-
-document.getElementById("sheetSelect").addEventListener("change", () => {
-  fillSuggestedViewName(false);
 });
 
 document.getElementById("viewNameInput").addEventListener("input", (e) => {
@@ -504,13 +491,13 @@ document.getElementById("readBtn").addEventListener("click", async () => {
 
     if (!workbookData) {
       workbookData = await readWorkbook(file);
-      populateSheetSelect(workbookData);
+      firstSheetName = getFirstSheetName(workbookData);
+      setSheetInfo(firstSheetName);
       fillSuggestedViewName(true);
     }
 
-    const sheetName = getSelectedSheetName();
-    if (!sheetName) {
-      log("Please choose a sheet.");
+    if (!firstSheetName) {
+      log("Could not find the first sheet.");
       return;
     }
 
@@ -518,9 +505,9 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     updateStats();
     await initAPI();
 
-    excelRows = sheetToRows(workbookData, sheetName);
+    excelRows = sheetToRows(workbookData, firstSheetName);
 
-    log(`Workbook sheet selected: ${sheetName}`);
+    log(`Using first sheet: ${firstSheetName}`);
     log(`Excel rows loaded: ${excelRows.length}`);
 
     await applyColorWorkflow();
@@ -549,3 +536,4 @@ document.getElementById("saveViewBtn").addEventListener("click", async () => {
 });
 
 updateStats();
+setSheetInfo("Chưa nạp file Excel");
