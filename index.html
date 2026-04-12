@@ -75,7 +75,6 @@
     }
 
     input[type="file"],
-    select,
     input[type="text"] {
       width: 100%;
       box-sizing: border-box;
@@ -173,7 +172,7 @@
 <body>
   <div class="card">
     <div class="brand-header">
-      <img src="https://heodaigia1983.github.io/trimble-extension/icon.svg?v=13" alt="Model Approval Colorizer Icon" />
+      <img src="https://heodaigia1983.github.io/trimble-extension/icon.svg?v=14" alt="Model Approval Colorizer Icon" />
       <div>
         <h2>Model Approval Colorizer</h2>
         <div class="brand-meta">
@@ -187,13 +186,11 @@
       <label for="fileInput">Tệp Excel</label>
       <input type="file" id="fileInput" accept=".xls,.xlsx" />
 
-      <label for="sheetSelect">Chọn sheet</label>
-      <select id="sheetSelect">
-        <option value="">-- Chưa chọn sheet --</option>
-      </select>
+      <label for="sheetInfo">Sheet sử dụng</label>
+      <input type="text" id="sheetInfo" readonly value="Chưa nạp file Excel" />
 
       <label for="viewNameInput">Tên view muốn lưu</label>
-      <input type="text" id="viewNameInput" placeholder="Ví dụ: Approval - Paint Code - 2026-04-12 19:30" />
+      <input type="text" id="viewNameInput" placeholder="Ví dụ: Approval - 2026-04-12 19:30" />
     </div>
 
     <div class="btn-row">
@@ -203,7 +200,7 @@
     </div>
 
     <div class="note">
-      Chọn đúng sheet trước khi chạy.<br />
+      Tool sẽ tự động dùng <strong>sheet đầu tiên</strong> trong file Excel.<br />
       Các cấu kiện có trong Excel sẽ được tô <strong>màu xanh</strong>.<br />
       Các cấu kiện còn lại giữ nguyên màu gốc của mô hình.
     </div>
@@ -222,6 +219,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>
