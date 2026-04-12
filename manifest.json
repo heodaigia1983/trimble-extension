@@ -1,7 +1,7 @@
 {
   "title": "Excel Colorizer",
-  "icon": "https://heodaigia1983.github.io/trimble-extension/icon.png?v=4",
-  "url": "https://heodaigia1983.github.io/trimble-extension/index.html?v=4",
-  "description": "Excel approved items = green, others = gray",
+  "icon": "https://heodaigia1983.github.io/trimble-extension/icon.png?v=5",
+  "url": "https://heodaigia1983.github.io/trimble-extension/index.html?v=5",
+  "description": "Approved from Excel = green, others optionally gray",
   "enabled": true
 }
