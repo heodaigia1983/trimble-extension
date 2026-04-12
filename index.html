@@ -12,47 +12,91 @@
       font-family: Arial, sans-serif;
       padding: 12px;
       margin: 0;
+      font-size: 13px;
     }
 
     h3 {
       margin: 0 0 12px 0;
+      font-size: 18px;
     }
 
-    input, button {
+    .toolbar {
+      margin-bottom: 8px;
+    }
+
+    input[type="file"], button {
       margin: 6px 0;
+    }
+
+    .btn-row button {
+      margin-right: 6px;
+    }
+
+    .checkbox-row {
+      margin: 8px 0;
+      font-size: 13px;
+    }
+
+    .legend {
+      margin: 8px 0;
+      font-size: 12px;
+      color: #444;
+    }
+
+    .stats {
+      margin-top: 8px;
+      margin-bottom: 8px;
+      padding: 8px;
+      background: #f7f7f7;
+      border: 1px solid #ddd;
+      font-size: 13px;
+      line-height: 1.6;
     }
 
     #log {
       white-space: pre-wrap;
       background: #f3f3f3;
       padding: 8px;
-      height: 280px;
+      height: 260px;
       overflow: auto;
-      margin-top: 8px;
       border: 1px solid #ddd;
-    }
-
-    .hint {
       font-size: 12px;
-      color: #555;
-      margin-top: 4px;
-      margin-bottom: 8px;
     }
   </style>
 </head>
 <body>
   <h3>Excel Paint Code Colorizer</h3>
 
-  <input type="file" id="fileInput" accept=".xls,.xlsx" />
-  <br />
-  <button id="readBtn">Đọc Excel</button>
+  <div class="toolbar">
+    <input type="file" id="fileInput" accept=".xls,.xlsx" />
+  </div>
 
-  <div class="hint">
-    Có trong Excel = xanh, không có trong Excel = xám
+  <div class="btn-row">
+    <button id="readBtn" type="button">Đọc Excel</button>
+    <button id="resetBtn" type="button">Reset màu</button>
+  </div>
+
+  <div class="checkbox-row">
+    <label>
+      <input type="checkbox" id="grayOthersCheckbox" checked />
+      Chỉ tô xanh phần có trong Excel, còn lại xám
+    </label>
+  </div>
+
+  <div class="legend">
+    Xanh = đã ban hành / đã trình duyệt | Xám = chưa trình duyệt / đang triển khai
+  </div>
+
+  <div class="stats" id="stats">
+    Tổng object: -<br />
+    GUID trong Excel: -<br />
+    Xanh: -<br />
+    Xám: -<br />
+    Không match: -
   </div>
 
   <div id="log"></div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
