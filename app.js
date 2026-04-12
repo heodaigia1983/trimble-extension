@@ -163,9 +163,7 @@ function normalizeConvertedIds(value) {
   if (typeof value === "number") return [value];
 
   if (Array.isArray(value)) {
-    return value
-      .flat(Infinity)
-      .filter(v => typeof v === "number");
+    return value.flat(Infinity).filter(v => typeof v === "number");
   }
 
   return [];
@@ -191,7 +189,6 @@ async function convertGuidsAcrossModels(api, modelGroups, guids) {
       if (matches[i]) continue;
 
       const ids = normalizeConvertedIds(runtimeIds[i]);
-
       if (ids.length > 0) {
         matches[i] = {
           modelId: group.modelId,
@@ -222,13 +219,58 @@ function buildApprovedSetsByModel(matches) {
   return map;
 }
 
-function buildOtherIdsByModel(modelGroups, approvedSetsByModel) {
+function extractHierarchyIds(input) {
+  const ids = new Set();
+
+  function walk(node) {
+    if (!node) return;
+
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+
+    if (typeof node.id === "number") ids.add(node.id);
+    if (typeof node.entityId === "number") ids.add(node.entityId);
+    if (typeof node.runtimeId === "number") ids.add(node.runtimeId);
+
+    if (Array.isArray(node.children)) walk(node.children);
+    if (Array.isArray(node.parents)) walk(node.parents);
+    if (Array.isArray(node.entities)) walk(node.entities);
+  }
+
+  walk(input);
+  return Array.from(ids);
+}
+
+async function buildGrayIdsByModel(api, modelGroups, approvedSetsByModel) {
   const result = new Map();
 
   for (const group of modelGroups) {
-    const approvedSet = approvedSetsByModel.get(group.modelId) || new Set();
-    const others = group.runtimeIds.filter(id => !approvedSet.has(id));
-    result.set(group.modelId, others);
+    const approvedIds = Array.from(approvedSetsByModel.get(group.modelId) || new Set());
+    const protectedIds = new Set(approvedIds);
+
+    if (approvedIds.length) {
+      try {
+        const parents = await api.viewer.getHierarchyParents(
+          group.modelId,
+          approvedIds,
+          undefined,
+          true,
+          false
+        );
+
+        const parentIds = extractHierarchyIds(parents);
+        parentIds.forEach(id => protectedIds.add(id));
+
+        log(`Parent ids được bảo vệ model ${group.modelId}: ${parentIds.length}`);
+      } catch (err) {
+        log(`Không lấy được hierarchy parents model ${group.modelId}: ${err?.message || String(err)}`);
+      }
+    }
+
+    const grayIds = group.runtimeIds.filter(id => !protectedIds.has(id));
+    result.set(group.modelId, grayIds);
   }
 
   return result;
@@ -281,11 +323,17 @@ async function applyColorWorkflow() {
   }
 
   const unmatchedCount = excelGuids.length - matchedGuidCount;
-  const otherIdsByModel = buildOtherIdsByModel(modelGroups, approvedSetsByModel);
 
   let grayCount = 0;
-  for (const [, ids] of otherIdsByModel.entries()) {
-    grayCount += ids.length;
+  let grayIdsByModel = new Map();
+
+  if (grayOthers) {
+    grayIdsByModel = await buildGrayIdsByModel(api, modelGroups, approvedSetsByModel);
+    for (const [, ids] of grayIdsByModel) {
+      grayCount += ids.length;
+    }
+  } else {
+    grayCount = "-";
   }
 
   log("GUID match: " + matchedGuidCount);
@@ -294,11 +342,10 @@ async function applyColorWorkflow() {
   log("Object xám thực tế: " + grayCount);
 
   if (grayOthers) {
-    for (const [modelId, ids] of otherIdsByModel.entries()) {
+    for (const [modelId, ids] of grayIdsByModel.entries()) {
       await setObjectColorBatch(api, modelId, ids, OTHER_COLOR, `Tô xám model ${modelId}`);
     }
   } else {
-    grayCount = "-";
     log("Bỏ qua bước tô xám phần còn lại.");
   }
 
@@ -325,11 +372,9 @@ async function resetColors() {
   const api = await initAPI();
   clearLog();
   log("Đang reset viewer...");
-
   await api.viewer.reset();
   updateStats();
-
-  log("Đã reset model/camera/tools về mặc định.");
+  log("Đã reset viewer.");
 }
 
 document.getElementById("readBtn").addEventListener("click", async () => {
