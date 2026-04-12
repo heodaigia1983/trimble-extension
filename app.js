@@ -25,6 +25,7 @@ async function initAPI() {
 function readExcel(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = e => {
       try {
         const workbook = XLSX.read(e.target.result, { type: "array" });
@@ -35,20 +36,10 @@ function readExcel(file) {
         reject(err);
       }
     };
+
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
-}
-
-async function getLoadedModelId() {
-  const api = await initAPI();
-  const models = await api.viewer.getModels();
-
-  if (!models || !models.length) {
-    throw new Error("Không tìm thấy model đang load.");
-  }
-
-  return models[0].id;
 }
 
 function normalizeRows(rows) {
@@ -58,6 +49,46 @@ function normalizeRows(rows) {
       paintCode: String(r["PAINT CODE"] || "").trim()
     }))
     .filter(r => r.guid);
+}
+
+async function getLoadedModelId() {
+  const api = await initAPI();
+
+  // thử lấy từ viewer objects trước
+  try {
+    const viewerObjects = await api.viewer.getObjects();
+    if (Array.isArray(viewerObjects) && viewerObjects.length) {
+      const modelIds = [...new Set(viewerObjects.map(x => x.modelId).filter(Boolean))];
+      if (modelIds.length) {
+        log("Loaded modelIds trong viewer: " + modelIds.join(", "));
+        return modelIds[0];
+      }
+    }
+
+    if (
+      viewerObjects &&
+      Array.isArray(viewerObjects.modelObjectIds) &&
+      viewerObjects.modelObjectIds.length
+    ) {
+      const modelIds = [...new Set(viewerObjects.modelObjectIds.map(x => x.modelId).filter(Boolean))];
+      if (modelIds.length) {
+        log("Loaded modelIds trong viewer: " + modelIds.join(", "));
+        return modelIds[0];
+      }
+    }
+  } catch (err) {
+    log("getObjects fallback: " + (err?.message || String(err)));
+  }
+
+  // fallback sang getModels
+  const models = await api.viewer.getModels();
+
+  if (!models || !models.length) {
+    throw new Error("Không tìm thấy model đang load.");
+  }
+
+  log("viewer.getModels(): " + models.map(m => m.id).join(", "));
+  return models[0].id;
 }
 
 async function colorByPaintCode() {
@@ -75,7 +106,26 @@ async function colorByPaintCode() {
   log("Bắt đầu đổi GUID -> runtimeId...");
 
   const guids = rows.map(r => r.guid);
-  const runtimeIds = await api.viewer.convertToObjectRuntimeIds(modelId, guids);
+
+  // test 1 GUID trước
+  log("Test GUID đầu tiên: " + guids[0]);
+
+  let testRuntimeIds;
+  try {
+    testRuntimeIds = await api.viewer.convertToObjectRuntimeIds(modelId, [guids[0]]);
+    log("Test runtimeIds[0]: " + JSON.stringify(testRuntimeIds));
+  } catch (err) {
+    log("Lỗi test convert 1 GUID: " + (err?.message || JSON.stringify(err) || String(err)));
+    throw err;
+  }
+
+  let runtimeIds;
+  try {
+    runtimeIds = await api.viewer.convertToObjectRuntimeIds(modelId, guids);
+  } catch (err) {
+    log("Lỗi convert full list: " + (err?.message || JSON.stringify(err) || String(err)));
+    throw err;
+  }
 
   const groups = {};
   let matched = 0;
@@ -138,6 +188,7 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     excelRows = await readExcel(file);
     log(`Đọc xong ${excelRows.length} dòng.`);
     log("5 dòng đầu:");
+
     excelRows.slice(0, 5).forEach(r => {
       log(`${r.GUID} | ${r["PAINT CODE"]}`);
     });
@@ -145,6 +196,6 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     await colorByPaintCode();
   } catch (err) {
     console.error(err);
-    log("Lỗi: " + err.message);
+    log("Lỗi: " + (err?.message || JSON.stringify(err) || String(err)));
   }
 });
