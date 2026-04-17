@@ -2,219 +2,47 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Model Approval Colorizer</title>
+  <title>Excel Colorizer</title>
 
   <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
 
   <style>
-    :root {
-      --brand-blue: #0063a3;
-      --brand-blue-dark: #004f82;
-      --brand-green: #4caf50;
-      --brand-gray: #f3f5f7;
-      --brand-border: #d7dde3;
-      --brand-text: #1f2933;
-      --brand-subtext: #5b6770;
-    }
-
     body {
       font-family: Arial, sans-serif;
       padding: 12px;
       margin: 0;
-      font-size: 13px;
-      color: var(--brand-text);
-      background: #ffffff;
     }
 
-    .card {
-      border: 1px solid var(--brand-border);
-      border-radius: 10px;
-      padding: 12px;
-      background: #fff;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-    }
-
-    .brand-header {
-      display: flex;
-      gap: 10px;
-      align-items: center;
+    h3 {
+      margin-top: 0;
       margin-bottom: 12px;
     }
 
-    .brand-header img {
-      width: 40px;
-      height: 40px;
-      border-radius: 8px;
-      flex: 0 0 auto;
-    }
-
-    h2 {
-      margin: 0;
-      font-size: 17px;
-      line-height: 1.3;
-      color: var(--brand-blue);
-    }
-
-    .brand-meta {
-      margin-top: 2px;
-      font-size: 11px;
-      color: var(--brand-subtext);
-      line-height: 1.5;
-    }
-
-    .toolbar {
-      margin-bottom: 10px;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 4px;
-      font-size: 12px;
-      color: var(--brand-subtext);
-    }
-
-    input[type="file"],
-    input[type="text"] {
-      width: 100%;
-      box-sizing: border-box;
-      margin-bottom: 8px;
-      padding: 8px 10px;
-      border: 1px solid var(--brand-border);
-      border-radius: 8px;
-      font-size: 13px;
-      background: #fff;
-      color: var(--brand-text);
-    }
-
-    .btn-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-
-    button {
-      border: none;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: background 0.2s ease;
-    }
-
-    #readBtn,
-    #saveViewBtn {
-      background: var(--brand-blue);
-      color: #fff;
-    }
-
-    #readBtn:hover,
-    #saveViewBtn:hover {
-      background: var(--brand-blue-dark);
-    }
-
-    #resetBtn {
-      background: #e8edf2;
-      color: var(--brand-text);
-    }
-
-    #resetBtn:hover {
-      background: #dce4ea;
-    }
-
-    .note {
-      margin: 8px 0 10px 0;
-      font-size: 12px;
-      color: var(--brand-subtext);
-      line-height: 1.5;
-      border-left: 3px solid var(--brand-green);
-      padding-left: 8px;
-    }
-
-    .stats {
-      margin-top: 8px;
-      margin-bottom: 10px;
-      padding: 10px;
-      background: var(--brand-gray);
-      border: 1px solid var(--brand-border);
-      border-radius: 8px;
-      font-size: 13px;
-      line-height: 1.8;
-    }
-
-    .stats strong {
-      color: var(--brand-blue);
+    input, button {
+      margin: 6px 0;
     }
 
     #log {
       white-space: pre-wrap;
-      background: #f8fafb;
+      background: #f3f3f3;
       padding: 8px;
-      height: 240px;
+      height: 260px;
       overflow: auto;
-      border: 1px solid var(--brand-border);
-      border-radius: 8px;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-
-    .footer {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid var(--brand-border);
-      font-size: 11px;
-      color: var(--brand-subtext);
-      line-height: 1.5;
+      margin-top: 8px;
+      border: 1px solid #ddd;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="brand-header">
-      <img src="https://heodaigia1983.github.io/trimble-extension/icon.svg?v=14" alt="Model Approval Colorizer Icon" />
-      <div>
-        <h2>Model Approval Colorizer</h2>
-        <div class="brand-meta">
-          Developed by <strong>Le Van Thao</strong><br />
-          Phone: <strong>05.666668.47</strong>
-        </div>
-      </div>
-    </div>
+  <h3>Excel Paint Code Colorizer</h3>
 
-    <div class="toolbar">
-      <label for="fileInput">Tệp Excel</label>
-      <input type="file" id="fileInput" accept=".xls,.xlsx" />
+  <input type="file" id="fileInput" accept=".xls,.xlsx" />
+  <br />
+  <button id="readBtn">Đọc Excel</button>
 
-      <label for="viewNameInput">Tên view muốn lưu</label>
-      <input type="text" id="viewNameInput" placeholder="Ví dụ: Approval - 2026-04-12 19:30" />
-    </div>
+  <div id="log"></div>
 
-    <div class="btn-row">
-      <button id="readBtn" type="button">Đọc Excel</button>
-      <button id="saveViewBtn" type="button">Save View</button>
-      <button id="resetBtn" type="button">Reset màu</button>
-    </div>
-
-    <div class="note">
-      Các cấu kiện có trong Excel sẽ được tô <strong>màu xanh</strong>.<br />
-      Các cấu kiện còn lại giữ nguyên màu gốc của mô hình.
-    </div>
-
-    <div class="stats" id="stats">
-      Tổng số cấu kiện dự án: <strong>-</strong><br />
-      Tổng khối lượng dự án: <strong>-</strong><br />
-      Số cấu kiện đang triển khai: <strong>-</strong><br />
-      Khối lượng đang triển khai: <strong>-</strong>
-    </div>
-
-    <div id="log"></div>
-
-    <div class="footer">
-      Developed by Le Van Thao
-    </div>
-  </div>
-
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
