@@ -1,7 +1,7 @@
 {
-  "title": "Model Approval Colorizer",
-  "icon": "https://heodaigia1983.github.io/trimble-extension/icon.svg?v=14",
-  "url": "https://heodaigia1983.github.io/trimble-extension/index.html?v=14",
-  "description": "Developed by Le Van Thao | Phone: 05.666668.47",
+  "title": "Excel Colorizer",
+  "icon": "https://heodaigia1983.github.io/trimble-extension/icon.png?v=3",
+  "url": "https://heodaigia1983.github.io/trimble-extension/index.html?v=3",
+  "description": "Read Excel and colorize objects by GUID",
   "enabled": true
 }
